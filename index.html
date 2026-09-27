@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Findchips Power BI Matcher</title>
+<style>
+  :root{--blue:#1278d1;--blue2:#0b66b5;--header:#8fc5f1;--grid:#e5e7eb;--text:#1f2937;--muted:#6b7280;--bg:#f6f7f9;--danger:#b42318;--ok:#067647}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);font-family:"Segoe UI",Arial,sans-serif;color:var(--text)}
+  .page{max-width:1500px;margin:auto;padding:32px 28px 46px}
+  .workflow{display:flex;align-items:center;gap:26px;margin:0 22px 48px;min-height:86px}
+  .upload{position:relative;width:380px;height:66px;border-radius:4px;background:var(--blue);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.12);user-select:none}
+  .upload:hover,.run:hover{background:var(--blue2)}
+  .upload .main{font-size:16px;font-weight:700;display:flex;align-items:center;gap:10px;line-height:1.2}
+  .upload .sub{font-size:13px;color:#b9d9f5;margin-top:4px}
+  .upload input{position:absolute;inset:0;opacity:0;cursor:pointer}
+  .upload.drag{outline:3px solid #9dd4ff;outline-offset:3px}
+  .arrow{width:100px;height:2px;background:#111;position:relative;flex:0 0 100px}
+  .arrow:after{content:"";position:absolute;right:-1px;top:-4px;border-left:8px solid #111;border-top:5px solid transparent;border-bottom:5px solid transparent}
+  .run{width:360px;height:76px;border:0;border-radius:12px;background:var(--blue);color:#fff;font:400 24px "Segoe UI",Arial,sans-serif;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.10)}
+  .run:disabled{opacity:.45;cursor:not-allowed}
+  .meta{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:-30px 22px 22px;font-size:12px;color:var(--muted)}
+  .meta b{color:#374151}
+  .status-dot{width:8px;height:8px;border-radius:50%;background:#d97706;display:inline-block;margin-right:5px}.status-dot.ok{background:#12b76a}.status-dot.bad{background:#f04438}
+  .progress{height:4px;background:#e5e7eb;margin:0 22px 16px;border-radius:5px;overflow:hidden}.progress>span{display:block;height:100%;width:0;background:var(--blue);transition:width .2s}
+  .toolbar{display:flex;align-items:center;gap:10px;margin:0 22px 8px;font-size:12px;color:var(--muted)}
+  .toolbar .grow{flex:1}.toolbar input{height:30px;border:1px solid #d1d5db;border-radius:4px;padding:0 9px;min-width:260px;background:white}
+  .linkbtn{border:0;background:transparent;color:#1266a8;padding:4px 7px;cursor:pointer;font:inherit}.linkbtn:hover{text-decoration:underline}.linkbtn:disabled{opacity:.4;cursor:not-allowed;text-decoration:none}
+  .table-shell{margin:0 22px;background:#fff;border:1px solid #d9dde3;min-height:250px;box-shadow:0 1px 2px rgba(0,0,0,.04);position:relative}
+  .table-scroll{overflow:auto;max-height:560px;min-height:248px}
+  table{border-collapse:collapse;width:max-content;min-width:100%;font-size:10.5px;white-space:nowrap}
+  thead th{position:sticky;top:0;z-index:2;background:var(--header);color:#203040;text-align:left;font-weight:700;border-right:1px solid #d0deea;border-bottom:1px solid #b7cddd;padding:4px 7px;height:24px}
+  tbody td{border-right:1px solid #edf0f2;border-bottom:1px solid #e8ebee;padding:3px 7px;height:21px;max-width:420px;overflow:hidden;text-overflow:ellipsis;background:#fff}
+  tbody tr:hover td{background:#f3f8fd}
+  th:nth-child(1),td:nth-child(1){min-width:150px} th:nth-child(2),td:nth-child(2){min-width:175px} th:nth-child(3),td:nth-child(3){min-width:175px} th:nth-child(4),td:nth-child(4){min-width:170px}
+  th:nth-child(5),td:nth-child(5){min-width:90px;text-align:right} th:nth-child(6),td:nth-child(6){min-width:90px} th:nth-child(7),td:nth-child(7),th:nth-child(8),td:nth-child(8){min-width:110px;text-align:right}
+  th:nth-child(9),td:nth-child(9),th:nth-child(10),td:nth-child(10){min-width:110px} th:nth-child(11),td:nth-child(11){min-width:320px} th:nth-child(12),td:nth-child(12){min-width:540px;white-space:normal} th:nth-child(13),td:nth-child(13){min-width:90px} th:nth-child(14),td:nth-child(14){min-width:150px}
+  .empty{position:absolute;inset:46px 0 0;display:grid;place-items:center;color:#9ca3af;font-size:13px;pointer-events:none}.empty[hidden]{display:none}
+  .footer{margin:8px 22px 0;font-size:11px;color:var(--muted)}
+  .message{margin:10px 22px 0;padding:8px 10px;border-left:3px solid #2e90fa;background:#eff8ff;font-size:12px;color:#344054}.message.error{border-color:#f04438;background:#fff1f0;color:#7a271a}.message.warn{border-color:#f79009;background:#fffaeb;color:#7a2e0e}
+  @media(max-width:950px){.workflow{margin-left:0;margin-right:0;gap:14px}.upload{width:320px}.run{width:300px}.arrow{width:60px;flex-basis:60px}.meta,.progress,.toolbar,.table-shell,.footer,.message{margin-left:0;margin-right:0}}
+  @media(max-width:720px){.workflow{flex-direction:column;align-items:stretch}.upload,.run{width:100%}.arrow{width:2px;height:42px;margin:auto;background:#111}.arrow:after{right:-4px;top:auto;bottom:-1px;border-top:8px solid #111;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:0}.meta{margin-top:-28px}.toolbar input{min-width:150px}}
+</style>
+</head>
+<body>
+<div class="page">
+  <section class="workflow" aria-label="Findchips workflow">
+    <label class="upload" id="dropZone">
+      <span class="main"><span aria-hidden="true">↥</span> Upload file</span>
+      <span class="sub">XLSX, CSV, and JSON, max size 5MB</span>
+      <input id="inputFile" type="file" accept=".xlsx,.csv,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,application/json">
+    </label>
+    <div class="arrow" aria-hidden="true"></div>
+    <button class="run" id="runBtn" disabled>RUN &amp; Export XLSX</button>
+  </section>
+
+  <div class="meta">
+    <span><b id="fileName">No file selected</b></span>
+    <span id="mpnInfo">0 MPN</span>
+    <span><i class="status-dot" id="serverDot"></i><span id="serverText">Checking backend service…</span></span>
+    <span id="runInfo"></span>
+  </div>
+  <div class="progress"><span id="progressBar"></span></div>
+
+  <div class="toolbar">
+    <span id="rowInfo">0 rows</span>
+    <span class="grow"></span>
+    <input id="filter" type="search" placeholder="Filter MPN / distributor / manufacturer">
+    <button class="linkbtn" id="stopBtn" disabled>Stop</button>
+    <button class="linkbtn" id="clearBtn">Clear</button>
+  </div>
+
+  <section class="table-shell">
+    <div class="table-scroll">
+      <table>
+        <thead><tr id="headers"></tr></thead>
+        <tbody id="body"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="empty">Upload a file containing an MPN column, then click RUN &amp; Export XLSX.</div>
+  </section>
+  <div class="footer" id="footer">Output schema follows Power BI. Export uses every offer row returned by the backend.</div>
+  <div id="messages"></div>
+</div>
+
+<script src="config.js"></script>
+<script>
+(()=>{
+'use strict';
+const API_BASE=String(window.FINDCHIPS_API_BASE||'').replace(/\/+$/,'');
+const apiUrl=path=>API_BASE?API_BASE+path:path;
+const MAX_FILE=5*1024*1024;
+const COLUMNS=['MPN_XP','Authorized Distributor','MPN_Distributor','Manufacturer','Stock Qty','Region','MOQ','Package Multiple','Lead Time','Date Code','Price Range','Description','Buy','Data Refresh'];
+const NUMERIC=new Set(['Stock Qty','MOQ','Package Multiple']);
+let inputMPNs=[], rows=[], running=false, stopRequested=false, refreshWallClock='';
+const $=id=>document.getElementById(id);
+const clean=v=>String(v==null?'':v).replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();
+const norm=v=>clean(v).toLowerCase().replace(/[^a-z0-9]/g,'');
+const xml=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g,'');
+const headerKeys=new Set(['mpn','mpnxp','inputmpn','part','partnumber','partno','mfrpartnumber']);
+
+function msg(text,type='info'){
+  const d=document.createElement('div'); d.className='message '+(type==='info'?'':type); d.textContent=text;
+  $('messages').prepend(d); while($('messages').children.length>4)$('messages').lastChild.remove();
+}
+function vnNowString(){
+  const d=new Date(Date.now()+7*3600*1000); const p=n=>String(n).padStart(2,'0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+}
+function intValue(v){
+  if(v==null||v==='')return '';
+  if(typeof v==='number'&&Number.isFinite(v))return Math.trunc(v);
+  const t=clean(v).replace(/,/g,''); const m=t.match(/-?\d+/); return m?Number(m[0]):'';
+}
+function stockQty(v){
+  if(v==null||v==='')return '';
+  if(typeof v==='number')return Math.trunc(v);
+  const t=clean(v); const after=t.includes(' - ')?t.split(' - ').slice(1).join(' - '):t; const m=after.replace(/,/g,'').match(/\d+/); return m?Number(m[0]):'';
+}
+function regionFromStock(v){const t=clean(v);return t.includes(' - ')?clean(t.split(' - ')[0]):'';}
+function authorizedName(v){return clean(v).replace(/\s+ECIA(?:\s*\([^)]*\))?.*$/i,'').replace(/\s+Authorized Distributor.*$/i,'').replace(/\s+Independent Distributor.*$/i,'').replace(/\s*[•|]\s*$/,'').trim();}
+function getAny(obj,names){for(const n of names){if(obj&&Object.prototype.hasOwnProperty.call(obj,n)&&obj[n]!=null&&obj[n]!=='')return obj[n];}return '';}
+function isIndependent(raw){
+  const flag=getAny(raw,['isAuthorized','authorized','Authorized']);
+  if(flag===false||String(flag).toLowerCase()==='false')return true;
+  return /independent distributor/i.test(clean(getAny(raw,['Distributor','distributor','Authorized Distributor'])));
+}
+function normalizeOffer(raw,inputMPN){
+  if(isIndependent(raw))return null;
+  const stockDisplay=getAny(raw,['Stock Display','stockDisplay','Stock','stock']);
+  const dist=authorizedName(getAny(raw,['Authorized Distributor','Distributor','distributor','supplier']));
+  return {
+    'MPN_XP':clean(getAny(raw,['MPN_XP','Input MPN','inputMPN','input_mpn']))||clean(inputMPN),
+    'Authorized Distributor':dist,
+    'MPN_Distributor':clean(getAny(raw,['MPN_Distributor','MPN','mpn','Part #','Part Number'])),
+    'Manufacturer':clean(getAny(raw,['Manufacturer','manufacturer','MFG'])),
+    'Stock Qty':stockQty(getAny(raw,['Stock Qty','stockQty'])||stockDisplay||getAny(raw,['Stock Attribute','data-stock'])),
+    'Region':clean(getAny(raw,['Region','region']))||regionFromStock(stockDisplay),
+    'MOQ':intValue(getAny(raw,['MOQ','moq','Min Qty','Minimum Order Qty'])),
+    'Package Multiple':intValue(getAny(raw,['Package Multiple','packageMultiple','multiple','Package Mult.'])),
+    'Lead Time':clean(getAny(raw,['Lead Time','leadTime','lead'])),
+    'Date Code':clean(getAny(raw,['Date Code','dateCode'])),
+    'Price Range':clean(getAny(raw,['Price Range','priceRange','Price','price'])),
+    'Description':clean(getAny(raw,['Description','description'])),
+    'Buy':clean(getAny(raw,['Buy','buy'])),
+    'Data Refresh':refreshWallClock
+  };
+}
+function blankResult(mpn){return {'MPN_XP':clean(mpn),'Authorized Distributor':'','MPN_Distributor':'','Manufacturer':'','Stock Qty':'','Region':'','MOQ':'','Package Multiple':'','Lead Time':'','Date Code':'','Price Range':'','Description':'','Buy':'','Data Refresh':refreshWallClock};}
+function sortRows(){
+  const cmp=(a,b)=>clean(a).localeCompare(clean(b),undefined,{numeric:true,sensitivity:'base'});
+  rows.sort((a,b)=>cmp(a['MPN_XP'],b['MPN_XP'])||cmp(a['Authorized Distributor'],b['Authorized Distributor'])||cmp(a['MPN_Distributor'],b['MPN_Distributor'])||((Number(b['Stock Qty'])||-Infinity)-(Number(a['Stock Qty'])||-Infinity)));
+}
+function render(){
+  $('headers').replaceChildren(...COLUMNS.map(c=>{const th=document.createElement('th');th.textContent=c;return th;}));
+  const q=norm($('filter').value); const visible=rows.filter(r=>!q||norm(`${r.MPN_XP} ${r['Authorized Distributor']} ${r.MPN_Distributor} ${r.Manufacturer}`).includes(q));
+  const frag=document.createDocumentFragment();
+  for(const r of visible.slice(0,1000)){
+    const tr=document.createElement('tr');
+    for(const c of COLUMNS){const td=document.createElement('td');const v=r[c]??'';td.textContent=v;td.title=String(v);tr.append(td);} frag.append(tr);
+  }
+  $('body').replaceChildren(frag); $('empty').hidden=rows.length>0; $('rowInfo').textContent=`${rows.length.toLocaleString()} rows`;
+  $('footer').textContent=`Preview ${Math.min(visible.length,1000).toLocaleString()} / ${visible.length.toLocaleString()} matching rows · Excel exports all ${rows.length.toLocaleString()} rows · Full-row mode · Excel exports every returned offer · Power BI sort: MPN_XP → Authorized Distributor → MPN_Distributor → Stock Qty desc.`;
+}
+$('filter').addEventListener('input',render);
+
+function parseDelimited(text,delimiter){
+  const out=[];let row=[],cell='',quoted=false; text=String(text).replace(/^\uFEFF/,'');
+  for(let i=0;i<text.length;i++){const ch=text[i];if(quoted){if(ch==='"'&&text[i+1]==='"'){cell+='"';i++;}else if(ch==='"')quoted=false;else cell+=ch;}else if(ch==='"')quoted=true;else if(ch===delimiter){row.push(cell);cell='';}else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&text[i+1]==='\n')i++;row.push(cell);if(row.some(x=>clean(x)!==''))out.push(row);row=[];cell='';}else cell+=ch;}
+  row.push(cell);if(row.some(x=>clean(x)!==''))out.push(row);return out;
+}
+function delimiterOf(text){const first=String(text).split(/\r?\n/,1)[0];return ['\t',',',';'].sort((a,b)=>first.split(b).length-first.split(a).length)[0];}
+function mpnsFromGrid(grid){
+  const nonEmpty=grid.filter(r=>r.some(v=>clean(v)!=='')); if(!nonEmpty.length)return [];
+  let headerRow=-1,col=0;
+  for(let i=0;i<Math.min(nonEmpty.length,20);i++){const j=nonEmpty[i].findIndex(v=>headerKeys.has(norm(v)));if(j>=0){headerRow=i;col=j;break;}}
+  const start=headerRow>=0?headerRow+1:0;
+  if(headerRow<0&&nonEmpty[0].length>1){throw Error('Cannot identify MPN column. Use a header such as MPN or MPN_XP.');}
+  return nonEmpty.slice(start).map(r=>clean(r[col])).filter(v=>v&&!headerKeys.has(norm(v)));
+}
+function mpnsFromJSON(value){
+  const arr=Array.isArray(value)?value:(Array.isArray(value?.data)?value.data:Array.isArray(value?.rows)?value.rows:[]);
+  if(!arr.length)return [];
+  if(typeof arr[0]!=='object'||arr[0]===null)return arr.map(clean).filter(Boolean);
+  let key=''; for(const k of Object.keys(arr[0]))if(headerKeys.has(norm(k))){key=k;break;}
+  if(!key)throw Error('JSON must contain an MPN / MPN_XP field.');
+  return arr.map(x=>clean(x?.[key])).filter(Boolean);
+}
+function uniqueMPNs(list){const seen=new Set(),out=[];for(const v of list){const x=clean(v),k=x.toUpperCase();if(x&&!seen.has(k)){seen.add(k);out.push(x);}}return out;}
+
+async function unzipXlsx(buffer){
+  const v=new DataView(buffer); const u8=new Uint8Array(buffer); let eocd=-1;
+  for(let i=u8.length-22;i>=Math.max(0,u8.length-66000);i--){if(v.getUint32(i,true)===0x06054b50){eocd=i;break;}}
+  if(eocd<0)throw Error('Invalid XLSX ZIP structure.');
+  const count=v.getUint16(eocd+10,true),centralOffset=v.getUint32(eocd+16,true);let p=centralOffset;const entries=new Map();
+  for(let n=0;n<count;n++){
+    if(v.getUint32(p,true)!==0x02014b50)break;
+    const method=v.getUint16(p+10,true),compSize=v.getUint32(p+20,true),nameLen=v.getUint16(p+28,true),extraLen=v.getUint16(p+30,true),commentLen=v.getUint16(p+32,true),local=v.getUint32(p+42,true);
+    const name=new TextDecoder().decode(u8.slice(p+46,p+46+nameLen));
+    const ln=v.getUint16(local+26,true),le=v.getUint16(local+28,true),start=local+30+ln+le; const compressed=u8.slice(start,start+compSize);
+    let data;
+    if(method===0)data=compressed;
+    else if(method===8){if(typeof DecompressionStream==='undefined')throw Error('This browser cannot decompress XLSX. Use current Chrome/Edge or CSV.');const ds=new DecompressionStream('deflate-raw');data=new Uint8Array(await new Response(new Blob([compressed]).stream().pipeThrough(ds)).arrayBuffer());}
+    else throw Error(`Unsupported XLSX compression method ${method}.`);
+    entries.set(name,data);p+=46+nameLen+extraLen+commentLen;
+  }
+  return entries;
+}
+function xmlText(bytes){return new TextDecoder('utf-8').decode(bytes);}
+function colIndex(ref){const m=String(ref).match(/^[A-Z]+/i);if(!m)return 0;let n=0;for(const ch of m[0].toUpperCase())n=n*26+ch.charCodeAt(0)-64;return n-1;}
+async function mpnsFromXlsx(file){
+  const zip=await unzipXlsx(await file.arrayBuffer()); const parser=new DOMParser();
+  const wbBytes=zip.get('xl/workbook.xml'); if(!wbBytes)throw Error('workbook.xml not found.');
+  const wb=parser.parseFromString(xmlText(wbBytes),'application/xml'); const firstSheet=wb.getElementsByTagNameNS('*','sheet')[0]; if(!firstSheet)throw Error('No worksheet in XLSX.');
+  const rid=firstSheet.getAttribute('r:id')||firstSheet.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships','id');
+  let sheetPath='xl/worksheets/sheet1.xml'; const relBytes=zip.get('xl/_rels/workbook.xml.rels');
+  if(relBytes&&rid){const rel=parser.parseFromString(xmlText(relBytes),'application/xml');const node=[...rel.getElementsByTagNameNS('*','Relationship')].find(x=>x.getAttribute('Id')===rid);if(node){let t=node.getAttribute('Target')||'';t=t.replace(/^\//,'');sheetPath=t.startsWith('xl/')?t:'xl/'+t.replace(/^\.\//,'');}}
+  const sheetBytes=zip.get(sheetPath); if(!sheetBytes)throw Error(`Worksheet ${sheetPath} not found.`);
+  let shared=[];const ss=zip.get('xl/sharedStrings.xml');if(ss){const doc=parser.parseFromString(xmlText(ss),'application/xml');shared=[...doc.getElementsByTagNameNS('*','si')].map(si=>[...si.getElementsByTagNameNS('*','t')].map(t=>t.textContent).join(''));}
+  const doc=parser.parseFromString(xmlText(sheetBytes),'application/xml'); const grid=[];
+  for(const r of doc.getElementsByTagNameNS('*','row')){const arr=[];for(const c of [...r.children].filter(x=>x.localName==='c')){const idx=colIndex(c.getAttribute('r')||'A1'),type=c.getAttribute('t')||'',v=c.getElementsByTagNameNS('*','v')[0]?.textContent??'',inline=[...c.getElementsByTagNameNS('*','t')].map(x=>x.textContent).join('');let value=v;if(type==='s')value=shared[Number(v)]??'';else if(type==='inlineStr')value=inline;else if(type==='str')value=v;arr[idx]=value;}grid.push(arr);}
+  return mpnsFromGrid(grid);
+}
+async function readInputFile(file){
+  if(!file)throw Error('Select an input file.'); if(file.size>MAX_FILE)throw Error('File is larger than 5MB.');
+  const ext=(file.name.split('.').pop()||'').toLowerCase(); let list=[];
+  if(ext==='xlsx')list=await mpnsFromXlsx(file);
+  else if(ext==='csv'){const t=await file.text();list=mpnsFromGrid(parseDelimited(t,delimiterOf(t)));}
+  else if(ext==='json')list=mpnsFromJSON(JSON.parse(await file.text()));
+  else throw Error('Only XLSX, CSV and JSON are supported.');
+  list=uniqueMPNs(list); if(!list.length)throw Error('No MPN values found in the file.'); if(list.length>5000)throw Error('Maximum 5,000 unique MPN per run.'); return list;
+}
+async function selectFile(file){
+  try{inputMPNs=await readInputFile(file);$('fileName').textContent=file.name;$('mpnInfo').textContent=`${inputMPNs.length.toLocaleString()} unique MPN`;$('runBtn').disabled=false;rows=[];render();msg(`Loaded ${inputMPNs.length.toLocaleString()} unique MPN from ${file.name}.`);}catch(e){inputMPNs=[];$('runBtn').disabled=true;$('fileName').textContent=file?.name||'No file selected';$('mpnInfo').textContent='0 MPN';msg(e.message,'error');}
+}
+$('inputFile').addEventListener('change',e=>selectFile(e.target.files[0]));
+for(const ev of ['dragenter','dragover'])$('dropZone').addEventListener(ev,e=>{e.preventDefault();$('dropZone').classList.add('drag');});
+for(const ev of ['dragleave','drop'])$('dropZone').addEventListener(ev,e=>{e.preventDefault();$('dropZone').classList.remove('drag');});
+$('dropZone').addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)selectFile(f);});
+
+async function health(){
+  try{if(location.protocol==='file:')throw Error();const r=await fetch(apiUrl('/api/health'),{cache:'no-store'});const j=await r.json();if(!r.ok||j.app!=='findchips-offers')throw Error();$('serverDot').className='status-dot ok';$('serverText').textContent='Backend service connected';return true;}
+  catch(_){$('serverDot').className='status-dot bad';$('serverText').textContent='Backend service not connected';return false;}
+}
+health();
+$('stopBtn').addEventListener('click',()=>{stopRequested=true;$('stopBtn').disabled=true;$('runInfo').textContent='Stopping after current batch…';});
+$('clearBtn').addEventListener('click',()=>{if(running)return;rows=[];inputMPNs=[];$('inputFile').value='';$('fileName').textContent='No file selected';$('mpnInfo').textContent='0 MPN';$('runBtn').disabled=true;$('progressBar').style.width='0%';$('runInfo').textContent='';$('messages').replaceChildren();render();});
+
+$('runBtn').addEventListener('click',async()=>{
+  if(running||!inputMPNs.length)return;
+  if(!await health()){msg('Backend is not connected. Check docs/config.js and confirm the cloud backend /api/health endpoint is online.','error');return;}
+  rows=[];render();running=true;stopRequested=false;refreshWallClock=vnNowString();$('runBtn').disabled=true;$('stopBtn').disabled=false;$('clearBtn').disabled=true;$('messages').replaceChildren();let done=0,fail=0;
+  try{
+    for(let i=0;i<inputMPNs.length&&!stopRequested;i+=5){
+      const batch=inputMPNs.slice(i,i+5);$('runInfo').textContent=`Querying ${i+1}–${Math.min(i+5,inputMPNs.length)} / ${inputMPNs.length}…`;
+      const response=await fetch(apiUrl('/api/search'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mpns:batch})});
+      let payload={};try{payload=await response.json();}catch(_){throw Error(`HTTP ${response.status}: invalid response`);}if(!response.ok)throw Error(payload.error||`HTTP ${response.status}`);
+      for(const result of payload.results||[]){done++;const input=clean(result.inputMPN||result.input_mpn||'');const source=Array.isArray(result.rows)?result.rows:[];let added=0;
+        for(const raw of source){const n=normalizeOffer(raw,input);if(n){rows.push(n);added++;}}
+        if(result.error||added===0){rows.push(blankResult(input));fail++;if(result.error)msg(`${input}: ${result.error}`,'warn');}
+      }
+      sortRows();render();$('progressBar').style.width=`${Math.min(100,done/inputMPNs.length*100)}%`;$('runInfo').textContent=`${done}/${inputMPNs.length} MPN · ${rows.length.toLocaleString()} output rows · ${fail} blank/error`;
+    }
+    sortRows();render();
+    if(stopRequested){msg(`Stopped at ${done}/${inputMPNs.length} MPN. Current rows were not auto-exported.`,'warn');}
+    else{msg(`Completed ${done.toLocaleString()} MPN. Exporting ${rows.length.toLocaleString()} rows with the Power BI schema.`);exportWorkbook();}
+  }catch(e){msg(`Run stopped: ${e.message}`,'error');}
+  finally{running=false;$('runBtn').disabled=!inputMPNs.length;$('stopBtn').disabled=true;$('clearBtn').disabled=false;}
+});
+
+const encoder=new TextEncoder();
+const crcTable=Array.from({length:256},(_,i)=>{let c=i;for(let j=0;j<8;j++)c=c&1?(0xedb88320^(c>>>1)):c>>>1;return c>>>0;});
+function crc32(data){let c=0xffffffff;for(const b of data)c=crcTable[(c^b)&255]^(c>>>8);return(c^0xffffffff)>>>0;}
+function u16(b,p,n){b[p]=n&255;b[p+1]=(n>>>8)&255} function u32(b,p,n){u16(b,p,n);u16(b,p+2,n>>>16)}
+function zip(entries){const local=[],central=[];let offset=0;for(const [name,content] of entries){const n=encoder.encode(name),d=encoder.encode(content),crc=crc32(d);const h=new Uint8Array(30+n.length);u32(h,0,0x04034b50);u16(h,4,20);u16(h,8,0);u32(h,14,crc);u32(h,18,d.length);u32(h,22,d.length);u16(h,26,n.length);h.set(n,30);local.push(h,d);const c=new Uint8Array(46+n.length);u32(c,0,0x02014b50);u16(c,4,20);u16(c,6,20);u32(c,16,crc);u32(c,20,d.length);u32(c,24,d.length);u16(c,28,n.length);u32(c,42,offset);c.set(n,46);central.push(c);offset+=h.length+d.length;}const size=central.reduce((a,b)=>a+b.length,0),end=new Uint8Array(22);u32(end,0,0x06054b50);u16(end,8,entries.length);u16(end,10,entries.length);u32(end,12,size);u32(end,16,offset);return new Blob([...local,...central,end],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});}
+function colName(i){let s='';for(i++;i;i=Math.floor((i-1)/26))s=String.fromCharCode(65+(i-1)%26)+s;return s;}
+function excelDateSerial(s){const m=String(s).match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);if(!m)return null;const ms=Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+m[6]);return ms/86400000+25569;}
+function worksheet(){
+  const all=[COLUMNS,...rows.map(r=>COLUMNS.map(c=>r[c]))];
+  const cell=(v,c,addr,head)=>{if(head)return `<c r="${addr}" s="1" t="inlineStr"><is><t xml:space="preserve">${xml(v)}</t></is></c>`;if(NUMERIC.has(c)&&v!==''&&Number.isFinite(Number(v)))return `<c r="${addr}" s="2"><v>${Number(v)}</v></c>`;if(c==='Data Refresh'){const d=excelDateSerial(v);if(d!=null)return `<c r="${addr}" s="3"><v>${d}</v></c>`;}return `<c r="${addr}" t="inlineStr"><is><t xml:space="preserve">${xml(v)}</t></is></c>`;};
+  const data=all.map((vals,i)=>`<row r="${i+1}">${vals.map((v,j)=>cell(v,COLUMNS[j],colName(j)+(i+1),i===0)).join('')}</row>`).join('');
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="16"/><cols><col min="1" max="4" width="24" customWidth="1"/><col min="5" max="10" width="16" customWidth="1"/><col min="11" max="11" width="42" customWidth="1"/><col min="12" max="12" width="72" customWidth="1"/><col min="13" max="13" width="14" customWidth="1"/><col min="14" max="14" width="21" customWidth="1"/></cols><sheetData>${data}</sheetData><autoFilter ref="A1:N${all.length}"/></worksheet>`;
+}
+function workbook(){
+  const types=`<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
+  const rels=`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
+  const wb=`<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Findchips Power BI" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+  const wbrel=`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
+  const styles=`<?xml version="1.0" encoding="UTF-8"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0"/><numFmt numFmtId="165" formatCode="yyyy-mm-dd hh:mm:ss"/></numFmts><fonts count="2"><font><sz val="10"/><name val="Aptos"/></font><font><b/><color rgb="FF203040"/><sz val="10"/><name val="Aptos"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF8FC5F1"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  return zip([['[Content_Types].xml',types],['_rels/.rels',rels],['xl/workbook.xml',wb],['xl/_rels/workbook.xml.rels',wbrel],['xl/styles.xml',styles],['xl/worksheets/sheet1.xml',worksheet()]]);
+}
+function exportWorkbook(){if(!rows.length)return;const blob=workbook(),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`Findchips_PowerBI_${new Date().toISOString().slice(0,10)}.xlsx`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
+
+render();
+window.__findchipsPowerBI={COLUMNS,normalizeOffer,mpnsFromGrid,parseDelimited,mpnsFromJSON,sortRows,get rows(){return rows},get inputMPNs(){return inputMPNs}};
+})();
+</script>
+</body>
+</html>

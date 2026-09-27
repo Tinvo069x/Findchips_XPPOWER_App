@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: findchips-purchasing-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    envVars:
+      - key: FINDCHIPS_NO_OPEN
+        value: "1"
+      - key: CORS_ORIGIN
+        value: "*"
