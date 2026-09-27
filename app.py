@@ -549,32 +549,52 @@ BROWSER = find_browser()
 
 
 def _playwright_dom(url):
-    """Render Findchips and progressively scroll until offer rows stabilise.
+    """Render Findchips completely on a slower cloud worker.
 
-    Findchips loads some distributor sections lazily.  Chrome --dump-dom can
-    capture only the initially loaded distributors, which is why a Power BI
-    result with 28 rows could appear as only 7 rows in the local app.
+    Findchips progressively/lazily exposes distributor sections.  A cloud
+    browser can reach the bottom before late distributor XHR/DOM work finishes,
+    leaving only the first handful of offer rows.  This implementation performs
+    repeated top-to-bottom passes and requires the DOM row/distributor counts to
+    remain stable before capture.
     """
     try:
         from playwright.sync_api import sync_playwright
     except Exception as exc:
         raise RuntimeError("Playwright is not installed") from exc
 
-    if not BROWSER:
-        raise RuntimeError("Chrome/Edge was not found. Install Chrome or Edge, or set FINDCHIPS_BROWSER.")
+    row_selector = (
+        "div.distributor-results tbody tr.row,"
+        "div.distributor-results tbody tr[data-mfrpartnumber],"
+        "div.distributor-results tr.row[data-mfrpartnumber]"
+    )
+
+    scroll_wait_ms = int(os.environ.get("FINDCHIPS_SCROLL_WAIT_MS", "900"))
+    bottom_wait_ms = int(os.environ.get("FINDCHIPS_BOTTOM_WAIT_MS", "1800"))
+    settle_wait_ms = int(os.environ.get("FINDCHIPS_SETTLE_WAIT_MS", "5000"))
+    max_passes = int(os.environ.get("FINDCHIPS_MAX_SCROLL_PASSES", "4"))
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            executable_path=BROWSER,
-            args=[
+        launch_kwargs = {
+            "headless": True,
+            "args": [
                 "--disable-gpu",
                 "--disable-dev-shm-usage",
                 "--disable-background-networking",
                 "--disable-blink-features=AutomationControlled",
+                "--no-first-run",
+                "--no-default-browser-check",
             ],
-        )
+        }
+        if not sys.platform.startswith("win"):
+            launch_kwargs["args"].append("--no-sandbox")
+        if BROWSER:
+            launch_kwargs["executable_path"] = BROWSER
+
+        browser = p.chromium.launch(**launch_kwargs)
         try:
+            # Singapore/APAC browser context.  Render is also deployed in the
+            # Singapore region in render.yaml so both outbound IP and browser
+            # context are much closer to the Vietnam/local behaviour.
             context = browser.new_context(
                 viewport={"width": 1920, "height": 1200},
                 user_agent=(
@@ -582,61 +602,172 @@ def _playwright_dom(url):
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/153.0.0.0 Safari/537.36"
                 ),
-                locale="en-US",
+                locale="en-SG",
+                timezone_id="Asia/Singapore",
+                geolocation={"latitude": 1.3521, "longitude": 103.8198},
+                permissions=["geolocation"],
+                extra_http_headers={
+                    "Accept-Language": "en-SG,en;q=0.9,en-US;q=0.8"
+                },
             )
-            page = context.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            page.wait_for_selector("div.distributor-results", timeout=30000)
 
-            # Walk through the page rather than jumping straight to the bottom.
-            # This triggers IntersectionObserver/lazy-load code for distributor
-            # groups that Power BI's browser renderer also eventually exposes.
-            last_state = None
-            stable_at_bottom = 0
-            for _ in range(90):
-                state = page.evaluate(
-                    """
-                    () => ({
-                      y: window.scrollY,
-                      inner: window.innerHeight,
-                      height: Math.max(document.body.scrollHeight, document.documentElement.scrollHeight),
-                      blocks: document.querySelectorAll('div.distributor-results').length,
-                      rows: document.querySelectorAll(
-                        'div.distributor-results tbody tr.row,' +
-                        'div.distributor-results tbody tr[data-mfrpartnumber],' +
-                        'div.distributor-results tr.row[data-mfrpartnumber]'
-                      ).length
-                    })
-                    """
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_selector("div.distributor-results", timeout=45000)
+
+            # Do not begin scrolling as soon as the first distributor appears.
+            # Cloud Chromium is slower than a desktop browser and Findchips can
+            # still be bootstrapping distributor requests at this point.
+            try:
+                page.wait_for_load_state("networkidle", timeout=8000)
+            except Exception:
+                pass
+            page.wait_for_timeout(3500)
+
+            state_js = f"""
+                () => ({{
+                    y: window.scrollY,
+                    inner: window.innerHeight,
+                    height: Math.max(
+                        document.body.scrollHeight,
+                        document.documentElement.scrollHeight
+                    ),
+                    blocks: document.querySelectorAll(
+                        'div.distributor-results'
+                    ).length,
+                    rows: document.querySelectorAll(
+                        {row_selector!r}
+                    ).length
+                }})
+            """
+
+            def get_state():
+                return page.evaluate(state_js)
+
+            best_rows = 0
+            best_blocks = 0
+            no_growth_passes = 0
+
+            for pass_no in range(max_passes):
+                page.evaluate("window.scrollTo(0, 0)")
+                page.wait_for_timeout(800)
+
+                stable_bottom_ticks = 0
+                previous_bottom_signature = None
+
+                for _ in range(160):
+                    state = get_state()
+                    best_rows = max(best_rows, int(state["rows"]))
+                    best_blocks = max(best_blocks, int(state["blocks"]))
+
+                    at_bottom = (
+                        state["y"] + state["inner"] >= state["height"] - 12
+                    )
+
+                    if not at_bottom:
+                        page.evaluate(
+                            """
+                            () => window.scrollBy(
+                                0,
+                                Math.max(
+                                    650,
+                                    Math.floor(window.innerHeight * 0.72)
+                                )
+                            )
+                            """
+                        )
+                        page.wait_for_timeout(scroll_wait_ms)
+                        continue
+
+                    # At the bottom: keep firing scroll events and waiting.
+                    # Findchips can append a new distributor block several
+                    # seconds after the viewport first reaches the bottom.
+                    page.evaluate(
+                        """
+                        () => {
+                            window.dispatchEvent(new Event('scroll'));
+                            window.scrollTo(
+                                0,
+                                Math.max(
+                                    document.body.scrollHeight,
+                                    document.documentElement.scrollHeight
+                                )
+                            );
+                        }
+                        """
+                    )
+                    page.wait_for_timeout(bottom_wait_ms)
+
+                    after = get_state()
+                    signature = (
+                        int(after["height"]),
+                        int(after["blocks"]),
+                        int(after["rows"]),
+                    )
+
+                    if signature == previous_bottom_signature:
+                        stable_bottom_ticks += 1
+                    else:
+                        stable_bottom_ticks = 0
+                        previous_bottom_signature = signature
+
+                    best_rows = max(best_rows, int(after["rows"]))
+                    best_blocks = max(best_blocks, int(after["blocks"]))
+
+                    # Require a long stable period, not the old ~2.5 seconds.
+                    if stable_bottom_ticks >= 5:
+                        break
+
+                # Give late XHR/DOM work time to append more distributor groups.
+                page.wait_for_timeout(settle_wait_ms)
+                after_pass = get_state()
+
+                grew = (
+                    int(after_pass["rows"]) > best_rows
+                    or int(after_pass["blocks"]) > best_blocks
+                )
+                best_rows = max(best_rows, int(after_pass["rows"]))
+                best_blocks = max(best_blocks, int(after_pass["blocks"]))
+
+                if grew:
+                    no_growth_passes = 0
+                else:
+                    no_growth_passes += 1
+
+                print(
+                    f"[browser] pass={pass_no + 1} "
+                    f"blocks={after_pass['blocks']} "
+                    f"rows={after_pass['rows']} "
+                    f"height={after_pass['height']}",
+                    flush=True,
                 )
 
-                at_bottom = state["y"] + state["inner"] >= state["height"] - 8
-                signature = (state["height"], state["blocks"], state["rows"])
-
-                if at_bottom and signature == last_state:
-                    stable_at_bottom += 1
-                elif at_bottom:
-                    stable_at_bottom = 1
-                else:
-                    stable_at_bottom = 0
-
-                if at_bottom and stable_at_bottom >= 5:
+                # Two complete passes with no growth is a much stronger signal
+                # than just reaching the bottom once.
+                if pass_no >= 1 and no_growth_passes >= 2:
                     break
 
-                page.evaluate(
-                    """
-                    () => window.scrollBy(
-                      0,
-                      Math.max(700, Math.floor(window.innerHeight * 0.80))
-                    )
-                    """
-                )
-                page.wait_for_timeout(500)
-                last_state = signature
+            # Touch every currently known distributor block once. This triggers
+            # any IntersectionObserver attached to individual blocks.
+            try:
+                blocks = page.locator("div.distributor-results")
+                count = blocks.count()
+                for i in range(count):
+                    blocks.nth(i).scroll_into_view_if_needed(timeout=3000)
+                    page.wait_for_timeout(180)
+            except Exception:
+                pass
 
-            # Give late XHR/DOM updates a final chance to settle.
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            page.wait_for_timeout(1800)
+            page.wait_for_timeout(settle_wait_ms)
+
+            final_state = get_state()
+            print(
+                f"[browser] final blocks={final_state['blocks']} "
+                f"rows={final_state['rows']}",
+                flush=True,
+            )
+
             html = page.content()
             if "<html" not in html.lower():
                 raise RuntimeError("Playwright returned no HTML")
@@ -731,6 +862,16 @@ def fetch_mpn(mpn):
             html = fetcher(url)
             rows = parse_findchips_html(html, mpn)
             if rows:
+                dist_count = len({
+                    clean(r.get("Authorized Distributor", "")).upper()
+                    for r in rows
+                    if clean(r.get("Authorized Distributor", ""))
+                })
+                print(
+                    f"[fetch] {mpn} source={source_name} "
+                    f"rows={len(rows)} distributors={dist_count}",
+                    flush=True,
+                )
                 candidates.append((rows, source_name))
             else:
                 errors.append(f"{source_name}: no Authorized Distributor rows found")
@@ -739,6 +880,10 @@ def fetch_mpn(mpn):
 
     if candidates:
         rows, source_name = max(candidates, key=lambda item: _candidate_score(item[0]))
+        print(
+            f"[fetch] {mpn} selected={source_name} rows={len(rows)}",
+            flush=True,
+        )
         return rows, None
 
     return [], "; ".join(errors[-3:])
